@@ -5,6 +5,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Anonymous Stats Demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+    h1 { color: #333; }
+    .status { padding: 10px; background: #f0f0f0; border-radius: 4px; margin: 10px 0; }
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
+    .metric-card { background: #fff; border: 2px solid #ddd; border-radius: 8px; padding: 15px; }
+    .metric-card h3 { margin: 0 0 5px 0; color: #666; font-size: 14px; }
+    .metric-card .value { font-size: 32px; font-weight: bold; color: #333; }
+    .chart { background: #f9f9f9; padding: 15px; border-radius: 8px; margin: 20px 0; }
+    .day-bar { display: flex; align-items: center; margin: 5px 0; font-size: 12px; }
+    .day-bar .date { width: 80px; }
+    .day-bar .bar { height: 20px; background: #4CAF50; margin-left: 10px; }
+    button { padding: 10px 20px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin: 5px; }
+    button:hover { background: #45a049; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    .retention { background: #fff3cd; padding: 10px; border-radius: 4px; margin: 10px 0; }
+  </style>
   <script type="importmap">
   {
     "imports": {
@@ -19,45 +36,61 @@
 
 <body>
   <div id="app">
-    <h1>Anonymous Statistics Demo</h1>
-    <div id="status">Initializing...</div>
-    <div id="output"></div>
-    <button id="ping" disabled>Send Stats Ping</button>
-    <hr>
-     <button id="stats">Load Stats</button>
-     <div id="statsEl"></div>
+    <h1>🔒 Anonymous Statistics Demo</h1>
+    <div class="status" id="status">Initializing...</div>
+    
+    <div>
+      <button id="ping" disabled>Send Stats Ping</button>
+      <button id="stats">Refresh Stats</button>
+    </div>
+
+    <div id="metrics" style="display: none;">
+      <h2>Key Metrics</h2>
+      <div class="metrics">
+        <div class="metric-card">
+          <h3>All Time Users</h3>
+          <div class="value" id="allTime">-</div>
+        </div>
+        <div class="metric-card">
+          <h3>Weekly Active (WAU)</h3>
+          <div class="value" id="wau">-</div>
+        </div>
+        <div class="metric-card">
+          <h3>Monthly Active (MAU)</h3>
+          <div class="value" id="mau">-</div>
+        </div>
+      </div>
+
+      <div class="retention">
+        <h3>Retention Metrics</h3>
+        <div id="retention">No retention data yet (need multiple days)</div>
+      </div>
+
+      <div class="chart">
+        <h3>Daily Active Users (Last 30 Days)</h3>
+        <div id="dailyChart"></div>
+      </div>
+    </div>
   </div>
 
   <script type="module">
     import { watch } from 'vue';
     import { useAuth } from 'hashkeys';
-    import { bech32 } from '@scure/base';
-    import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
 
     const auth = useAuth('hk');
     const statusEl = document.getElementById('status');
-    const outputEl = document.getElementById('output');
     const pingBtn = document.getElementById('ping');
     const statsBtn = document.getElementById('stats');
-    const statsEl = document.getElementById('statsEl');
-
+    const metricsEl = document.getElementById('metrics');
 
     function updateStatus(msg) {
       statusEl.textContent = msg;
     }
 
-    function addOutput(msg) {
-      const div = document.createElement('div');
-      div.textContent = msg;
-      outputEl.appendChild(div);
-    }
-
     // Watch auth state
     watch(() => auth.authenticated, (authenticated) => {
       if (authenticated) {
-        updateStatus('✓ Authenticated');
-        addOutput(`Identity: ${auth.identity}`);
-        addOutput(`Public Key: ${auth.publicKey.slice(0, 20)}...`);
+        updateStatus(`✓ Authenticated as ${auth.identity.slice(0, 8)}...`);
         pingBtn.disabled = false;
       } else {
         auth.login(Math.floor(Math.random()*1000000).toString())
@@ -65,38 +98,32 @@
     }, {immediate: true});
 
     watch(() => auth.error, (error) => {
-      if (error) {
-        updateStatus('✗ Error: ' + error);
-      }
+      if (error) updateStatus('✗ Error: ' + error);
     });
 
     watch(() => auth.loading, (loading) => {
-      if (loading) {
-        updateStatus('Loading...');
-      }
+      if (loading) updateStatus('Loading...');
     });
 
     // Send stats ping
     async function sendStatsPing() {
       try {
-        updateStatus('sending message...');
+        updateStatus('Sending ping...');
 
         const response = await fetch('/ingest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            pub: auth.publicKey,
-          })
+          body: JSON.stringify({ pub: auth.publicKey })
         });
 
         const result = await response.json();
 
         if (response.ok) {
-          updateStatus('✓ Stats ping successful');
-          addOutput(`Recorded for ${JSON.stringify(result)}`);
+          const newUserBadge = result.newUser ? ' 🎉 NEW USER!' : '';
+          updateStatus(`✓ Ping sent for ${result.date}${newUserBadge} (Daily: ${result.dailyCount})`);
+          loadStats(); // Auto-refresh
         } else {
           updateStatus('✗ Failed: ' + result.error);
-          addOutput(`Error details: ${result.error}`);
         }
       } catch (err) {
         updateStatus('✗ Error: ' + err.message);
@@ -107,17 +134,46 @@
     // Load stats
     async function loadStats() {
       try {
-        updateStatus('loading stats...');
+        updateStatus('Loading stats...');
 
         const response = await fetch('/api/stats');
         const result = await response.json();
-        console.log(result)
+
         if (response.ok) {
           updateStatus('✓ Stats loaded successfully');
-          statsEl.textContent = JSON.stringify(result, null, 2);
+          metricsEl.style.display = 'block';
+          
+          // Update metrics
+          document.getElementById('allTime').textContent = result.allTime.toLocaleString();
+          document.getElementById('wau').textContent = result.wau.toLocaleString();
+          document.getElementById('mau').textContent = result.mau.toLocaleString();
+
+          // Update retention
+          const retEl = document.getElementById('retention');
+          const ret = result.retention;
+          if (ret.d1 || ret.d7 || ret.d30) {
+            retEl.innerHTML = `
+              <div><strong>D1:</strong> ${ret.d1 ? `${ret.d1.cohortDate} → ${ret.d1.returnDate} (cohort: ${ret.d1.cohortSize})` : 'Not enough data'}</div>
+              <div><strong>D7:</strong> ${ret.d7 ? `${ret.d7.cohortDate} → ${ret.d7.returnDate} (cohort: ${ret.d7.cohortSize})` : 'Not enough data'}</div>
+              <div><strong>D30:</strong> ${ret.d30 ? `${ret.d30.cohortDate} → ${ret.d30.returnDate} (cohort: ${ret.d30.cohortSize})` : 'Not enough data'}</div>
+              <small style="color: #856404;">Note: ${ret.d1?.note || 'Bloom filters provide approximate data'}</small>
+            `;
+          } else {
+            retEl.textContent = 'No retention data yet (need multiple days)';
+          }
+
+          // Draw daily chart
+          const chartEl = document.getElementById('dailyChart');
+          const maxDau = Math.max(...result.recentDays.map(d => d.dau), 1);
+          chartEl.innerHTML = result.recentDays.map(day => `
+            <div class="day-bar">
+              <span class="date">${day.date}</span>
+              <div class="bar" style="width: ${(day.dau / maxDau) * 100}%"></div>
+              <span style="margin-left: 10px;">${day.dau}</span>
+            </div>
+          `).join('');
         } else {
           updateStatus('✗ Failed: ' + result.error);
-          statsEl.textContent = `Error details: ${result.error}`;
         }
       } catch (err) {
         updateStatus('✗ Error: ' + err.message);
@@ -125,10 +181,11 @@
       }
     }
 
-    // Manual trigger
     pingBtn.addEventListener('click', sendStatsPing);
     statsBtn.addEventListener('click', loadStats);
 
+    // Auto-load stats on start
+    setTimeout(loadStats, 1000);
   </script>
 </body>
 
