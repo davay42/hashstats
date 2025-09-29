@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Anonymous Stats Demo</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "vue": "https://esm.sh/vue",
+      "hashkeys": "https://esm.sh/hashkeys",
+      "@scure/base": "https://esm.sh/@scure/base",
+      "@noble/hashes/utils": "https://esm.sh/@noble/hashes@1.4.0/utils"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <h1>Anonymous Statistics Demo</h1>
+    <div id="status">Initializing...</div>
+    <div id="output"></div>
+    <button id="ping" disabled>Send Stats Ping</button>
+    <hr>
+    <a href="/stats.html">View Statistics Dashboard</a>
+  </div>
+
+  <script type="module">
+    import { watch } from 'vue';
+    import { useAuth } from 'hashkeys';
+    import { bech32 } from '@scure/base';
+    import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
+
+    const auth = useAuth('hk');
+    const statusEl = document.getElementById('status');
+    const outputEl = document.getElementById('output');
+    const pingBtn = document.getElementById('ping');
+
+    // Bech32 decoder for HashKeys format
+    function decodeBech32(encoded) {
+      try {
+        const { prefix, words } = bech32.decode(encoded, false);
+        const bytes = bech32.fromWords(words);
+        return { prefix, bytes: Uint8Array.from(bytes) };
+      } catch (err) {
+        throw new Error(`Failed to decode bech32: ${err.message}`);
+      }
+    }
+
+    function updateStatus(msg) {
+      statusEl.textContent = msg;
+    }
+
+    function addOutput(msg) {
+      const div = document.createElement('div');
+      div.textContent = msg;
+      outputEl.appendChild(div);
+    }
+
+    // Utility to concatenate byte arrays
+    function concatBytes(...arrays) {
+      const totalLength = arrays.reduce((sum, arr) => sum + arr.length, 0);
+      const result = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const arr of arrays) {
+        result.set(arr, offset);
+        offset += arr.length;
+      }
+      return result;
+    }
+
+    // Watch auth state
+    watch(() => auth.authenticated, (authenticated) => {
+      if (authenticated) {
+        updateStatus('✓ Authenticated');
+        addOutput(`Identity: ${auth.identity}`);
+        addOutput(`Public Key: ${auth.publicKey.slice(0, 20)}...`);
+        pingBtn.disabled = false;
+      } else {
+        updateStatus('Not authenticated');
+        pingBtn.disabled = true;
+      }
+    });
+
+    watch(() => auth.error, (error) => {
+      if (error) {
+        updateStatus('✗ Error: ' + error);
+      }
+    });
+
+    watch(() => auth.loading, (loading) => {
+      if (loading) {
+        updateStatus('Loading...');
+      }
+    });
+
+    // Send stats ping
+    async function sendStatsPing() {
+      try {
+        updateStatus('Signing message...');
+        
+        const ts = Math.floor(Date.now() / 1000);
+        const nonce = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        
+        // Decode public key from bech32 to get raw bytes
+        const { bytes: pubBytes } = decodeBech32(auth.publicKey);
+        
+        // Construct message exactly as server expects: pub || ts || nonce
+        const message = concatBytes(
+          pubBytes,
+          utf8ToBytes(ts.toString()),
+          utf8ToBytes(nonce)
+        );
+        
+        // Sign with HashKeys (it expects string or Uint8Array)
+        const { signature } = await auth.sign({ message });
+        
+        // Decode signature from bech32
+        const { bytes: sigBytes } = decodeBech32(signature);
+        
+        updateStatus('Sending to server...');
+        
+        const response = await fetch('/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pub: bytesToHex(pubBytes),
+            ts: ts,
+            nonce: nonce,
+            sig: bytesToHex(sigBytes)
+          })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+          updateStatus('✓ Stats ping successful');
+          addOutput(`Recorded for ${result.day}`);
+        } else {
+          updateStatus('✗ Failed: ' + result.error);
+          addOutput(`Error details: ${result.error}`);
+        }
+      } catch (err) {
+        updateStatus('✗ Error: ' + err.message);
+        console.error(err);
+      }
+    }
+
+    // Auto-login and send
+    async function init() {
+      try {
+       
+        // Try to recall existing session
+        const recalled = auth.recall();
+
+         
+        
+        if (true) {
+
+          
+          // Generate ephemeral identity from random bytes
+          updateStatus('Generating ephemeral identity...');
+          const ephemeralSecret = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+          await auth.login(ephemeralSecret);
+          
+        }
+        
+        // Wait for auth to complete
+        await new Promise(resolve => {
+          const unwatch = watch(() => auth.authenticated, (authenticated) => {
+            if (authenticated) {
+              unwatch();
+              resolve();
+            }
+          });
+        });
+        
+        // Auto-send once per session
+        const sentThisSession = sessionStorage.getItem('stats_sent');
+        if (!sentThisSession) {
+          await sendStatsPing();
+          sessionStorage.setItem('stats_sent', 'true');
+        } else {
+          updateStatus('✓ Already sent stats this session');
+        }
+      } catch (err) {
+        updateStatus('Initialization failed: ' + err.message);
+        console.error(err);
+      }
+    }
+
+    // Manual trigger
+    pingBtn.addEventListener('click', sendStatsPing);
+
+    // Initialize
+    init();
+  </script>
+</body>
+</html>

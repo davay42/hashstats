@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Statistics Dashboard</title>
+</head>
+<body>
+  <h1>Anonymous Usage Statistics</h1>
+  <div id="loading">Loading statistics...</div>
+  <div id="metrics" style="display: none;">
+    <h2>Current Metrics</h2>
+    <div id="total"></div>
+    <div id="latest"></div>
+    
+    <h2>Daily Active Users (DAU)</h2>
+    <canvas id="dauChart" width="800" height="300"></canvas>
+    
+    <h2>Weekly Active Users (WAU)</h2>
+    <canvas id="wauChart" width="800" height="300"></canvas>
+    
+    <h2>Monthly Active Users (MAU)</h2>
+    <canvas id="mauChart" width="800" height="300"></canvas>
+    
+    <h2>Raw Data</h2>
+    <pre id="rawData"></pre>
+  </div>
+  <hr>
+  <a href="/">Back to App</a>
+
+  <script>
+    // Minimal canvas-based chart renderer
+    function drawLineChart(canvas, labels, data, color = '#4A90E2') {
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+      const padding = 40;
+      
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height);
+      
+      if (data.length === 0) {
+        ctx.fillText('No data available', width / 2 - 50, height / 2);
+        return;
+      }
+      
+      // Calculate scales
+      const maxValue = Math.max(...data, 1);
+      const xStep = (width - 2 * padding) / (data.length - 1 || 1);
+      const yScale = (height - 2 * padding) / maxValue;
+      
+      // Draw axes
+      ctx.strokeStyle = '#ccc';
+      ctx.beginPath();
+      ctx.moveTo(padding, padding);
+      ctx.lineTo(padding, height - padding);
+      ctx.lineTo(width - padding, height - padding);
+      ctx.stroke();
+      
+      // Draw grid lines and Y-axis labels
+      ctx.fillStyle = '#999';
+      ctx.font = '10px sans-serif';
+      for (let i = 0; i <= 5; i++) {
+        const y = height - padding - (i * (height - 2 * padding) / 5);
+        const value = Math.round(i * maxValue / 5);
+        ctx.fillText(value, 5, y + 3);
+        ctx.strokeStyle = '#eee';
+        ctx.beginPath();
+        ctx.moveTo(padding, y);
+        ctx.lineTo(width - padding, y);
+        ctx.stroke();
+      }
+      
+      // Draw line
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      
+      data.forEach((value, i) => {
+        const x = padding + i * xStep;
+        const y = height - padding - value * yScale;
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+      ctx.stroke();
+      
+      // Draw points
+      ctx.fillStyle = color;
+      data.forEach((value, i) => {
+        const x = padding + i * xStep;
+        const y = height - padding - value * yScale;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, 2 * Math.PI);
+        ctx.fill();
+      });
+      
+      // Draw X-axis labels (show every nth label to avoid crowding)
+      ctx.fillStyle = '#999';
+      const labelStep = Math.ceil(labels.length / 10);
+      labels.forEach((label, i) => {
+        if (i % labelStep === 0 || i === labels.length - 1) {
+          const x = padding + i * xStep;
+          ctx.save();
+          ctx.translate(x, height - padding + 15);
+          ctx.rotate(-Math.PI / 4);
+          ctx.fillText(label, 0, 0);
+          ctx.restore();
+        }
+      });
+    }
+
+    async function loadAndRenderStats() {
+      try {
+        const response = await fetch('/api/stats');
+        if (!response.ok) {
+          throw new Error('Failed to fetch stats');
+        }
+        
+        const stats = await response.json();
+        
+        // Extract data
+        const days = Object.keys(stats.dau).sort();
+        const dauData = days.map(d => Math.round(stats.dau[d]));
+        const wauData = days.map(d => Math.round(stats.wau[d]));
+        const mauData = days.map(d => Math.round(stats.mau[d]));
+        
+        // Show metrics section
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('metrics').style.display = 'block';
+        
+        // Update summary metrics
+        document.getElementById('total').innerHTML = 
+          `<strong>Total Unique Users (All Time):</strong> ${Math.round(stats.total)}`;
+        
+        if (days.length > 0) {
+          const latestDay = days[days.length - 1];
+          document.getElementById('latest').innerHTML = 
+            `<strong>Latest (${latestDay}):</strong> ` +
+            `DAU: ${Math.round(stats.dau[latestDay])}, ` +
+            `WAU: ${Math.round(stats.wau[latestDay])}, ` +
+            `MAU: ${Math.round(stats.mau[latestDay])}`;
+        }
+        
+        // Render charts
+        drawLineChart(
+          document.getElementById('dauChart'),
+          days,
+          dauData,
+          '#E74C3C'
+        );
+        
+        drawLineChart(
+          document.getElementById('wauChart'),
+          days,
+          wauData,
+          '#3498DB'
+        );
+        
+        drawLineChart(
+          document.getElementById('mauChart'),
+          days,
+          mauData,
+          '#2ECC71'
+        );
+        
+        // Show raw data
+        document.getElementById('rawData').textContent = 
+          JSON.stringify(stats, null, 2);
+        
+      } catch (err) {
+        document.getElementById('loading').textContent = 
+          '✗ Error loading statistics: ' + err.message;
+        console.error(err);
+      }
+    }
+
+    // Load stats on page load
+    loadAndRenderStats();
+    
+    // Refresh every 30 seconds
+    setInterval(loadAndRenderStats, 30000);
+  </script>
+</body>
+</html>
