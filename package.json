@@ -1,6 +1,6 @@
 {
-  "name": "anonymous-stats-server",
-  "version": "1.0.0",
+  "name": "hashstats",
+  "version": "0.1.0",
   "type": "module",
   "description": "Privacy-preserving anonymous statistics server using HyperLogLog and Bloom filters with Noble cryptography",
   "main": "server.js",
@@ -23,6 +23,6 @@
     "@noble/hashes": "^1.5.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   }
 }
