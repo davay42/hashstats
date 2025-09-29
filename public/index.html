@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,14 +8,15 @@
   <script type="importmap">
   {
     "imports": {
-      "vue": "https://esm.sh/vue",
-      "hashkeys": "https://esm.sh/hashkeys",
-      "@scure/base": "https://esm.sh/@scure/base",
+      "vue": "https://esm.sh/vue@3.5.22",
+      "hashkeys": "https://esm.sh/hashkeys@0.2.1",
+      "@scure/base": "https://esm.sh/@scure/base@2.0.0",
       "@noble/hashes/utils": "https://esm.sh/@noble/hashes@1.4.0/utils"
     }
   }
   </script>
 </head>
+
 <body>
   <div id="app">
     <h1>Anonymous Statistics Demo</h1>
@@ -22,7 +24,8 @@
     <div id="output"></div>
     <button id="ping" disabled>Send Stats Ping</button>
     <hr>
-    <a href="/stats.html">View Statistics Dashboard</a>
+     <button id="stats">Load Stats</button>
+     <div id="statsEl"></div>
   </div>
 
   <script type="module">
@@ -35,17 +38,9 @@
     const statusEl = document.getElementById('status');
     const outputEl = document.getElementById('output');
     const pingBtn = document.getElementById('ping');
+    const statsBtn = document.getElementById('stats');
+    const statsEl = document.getElementById('statsEl');
 
-    // Bech32 decoder for HashKeys format
-    function decodeBech32(encoded) {
-      try {
-        const { prefix, words } = bech32.decode(encoded, false);
-        const bytes = bech32.fromWords(words);
-        return { prefix, bytes: Uint8Array.from(bytes) };
-      } catch (err) {
-        throw new Error(`Failed to decode bech32: ${err.message}`);
-      }
-    }
 
     function updateStatus(msg) {
       statusEl.textContent = msg;
@@ -57,18 +52,6 @@
       outputEl.appendChild(div);
     }
 
-    // Utility to concatenate byte arrays
-    function concatBytes(...arrays) {
-      const totalLength = arrays.reduce((sum, arr) => sum + arr.length, 0);
-      const result = new Uint8Array(totalLength);
-      let offset = 0;
-      for (const arr of arrays) {
-        result.set(arr, offset);
-        offset += arr.length;
-      }
-      return result;
-    }
-
     // Watch auth state
     watch(() => auth.authenticated, (authenticated) => {
       if (authenticated) {
@@ -77,10 +60,9 @@
         addOutput(`Public Key: ${auth.publicKey.slice(0, 20)}...`);
         pingBtn.disabled = false;
       } else {
-        updateStatus('Not authenticated');
-        pingBtn.disabled = true;
+        auth.login(Math.floor(Math.random()*1000000).toString())
       }
-    });
+    }, {immediate: true});
 
     watch(() => auth.error, (error) => {
       if (error) {
@@ -97,47 +79,21 @@
     // Send stats ping
     async function sendStatsPing() {
       try {
-        updateStatus('Signing message...');
-        
-        const ts = Math.floor(Date.now() / 1000);
-        const nonce = Array.from(crypto.getRandomValues(new Uint8Array(8)))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('');
-        
-        // Decode public key from bech32 to get raw bytes
-        const { bytes: pubBytes } = decodeBech32(auth.publicKey);
-        
-        // Construct message exactly as server expects: pub || ts || nonce
-        const message = concatBytes(
-          pubBytes,
-          utf8ToBytes(ts.toString()),
-          utf8ToBytes(nonce)
-        );
-        
-        // Sign with HashKeys (it expects string or Uint8Array)
-        const { signature } = await auth.sign({ message });
-        
-        // Decode signature from bech32
-        const { bytes: sigBytes } = decodeBech32(signature);
-        
-        updateStatus('Sending to server...');
-        
+        updateStatus('sending message...');
+
         const response = await fetch('/ingest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            pub: bytesToHex(pubBytes),
-            ts: ts,
-            nonce: nonce,
-            sig: bytesToHex(sigBytes)
+            pub: auth.publicKey,
           })
         });
-        
+
         const result = await response.json();
-        
+
         if (response.ok) {
           updateStatus('✓ Stats ping successful');
-          addOutput(`Recorded for ${result.day}`);
+          addOutput(`Recorded for ${JSON.stringify(result)}`);
         } else {
           updateStatus('✗ Failed: ' + result.error);
           addOutput(`Error details: ${result.error}`);
@@ -148,56 +104,32 @@
       }
     }
 
-    // Auto-login and send
-    async function init() {
+    // Load stats
+    async function loadStats() {
       try {
-       
-        // Try to recall existing session
-        const recalled = auth.recall();
+        updateStatus('loading stats...');
 
-         
-        
-        if (true) {
-
-          
-          // Generate ephemeral identity from random bytes
-          updateStatus('Generating ephemeral identity...');
-          const ephemeralSecret = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-            .map(b => b.toString(16).padStart(2, '0'))
-            .join('');
-          await auth.login(ephemeralSecret);
-          
-        }
-        
-        // Wait for auth to complete
-        await new Promise(resolve => {
-          const unwatch = watch(() => auth.authenticated, (authenticated) => {
-            if (authenticated) {
-              unwatch();
-              resolve();
-            }
-          });
-        });
-        
-        // Auto-send once per session
-        const sentThisSession = sessionStorage.getItem('stats_sent');
-        if (!sentThisSession) {
-          await sendStatsPing();
-          sessionStorage.setItem('stats_sent', 'true');
+        const response = await fetch('/api/stats');
+        const result = await response.json();
+        console.log(result)
+        if (response.ok) {
+          updateStatus('✓ Stats loaded successfully');
+          statsEl.textContent = JSON.stringify(result, null, 2);
         } else {
-          updateStatus('✓ Already sent stats this session');
+          updateStatus('✗ Failed: ' + result.error);
+          statsEl.textContent = `Error details: ${result.error}`;
         }
       } catch (err) {
-        updateStatus('Initialization failed: ' + err.message);
+        updateStatus('✗ Error: ' + err.message);
         console.error(err);
       }
     }
 
     // Manual trigger
     pingBtn.addEventListener('click', sendStatsPing);
+    statsBtn.addEventListener('click', loadStats);
 
-    // Initialize
-    init();
   </script>
 </body>
+
 </html>
