@@ -257,3 +257,14 @@ watch(() => auth.authenticated, async (authenticated) => {
 9. Use the same bloom-filters library to load and analyze the data structures
 
 Perfect for **proving zero-trust analytics** without compromising user privacy.
+
+
+### Further reading
+
+https://www.yld.io/blog/hyperloglog-a-probabilistic-data-structure
+https://www.npmjs.com/package/@noble/hashes
+https://github.com/Callidon/bloom-filters/
+https://en.wikipedia.org/wiki/Count-distinct_problem
+https://en.wikipedia.org/wiki/Differential_privacy
+https://github.com/paulmillr/scure-base
+https://github.com/DeFUCC/hashkeys
