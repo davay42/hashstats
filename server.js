@@ -1,9 +1,9 @@
 import express from 'express'
 import { writeFileSync, mkdirSync, existsSync, readFileSync, readdirSync } from 'fs'
 import pkg from 'bloom-filters'
-import { blake3 } from '@noble/hashes/blake3'
-import { utf8ToBytes, bytesToHex } from '@noble/hashes/utils'
-import { ed25519 } from '@noble/curves/ed25519'
+import { blake3 } from '@noble/hashes/blake3.js'
+import { utf8ToBytes, bytesToHex } from '@noble/hashes/utils.js'
+import { ed25519 } from '@noble/curves/ed25519.js'
 import { bech32 } from '@scure/base'
 
 const { HyperLogLog, ScalableBloomFilter } = pkg
@@ -218,6 +218,7 @@ app.post('/ingest', (req, res) => {
 
 app.get('/api/stats', (req, res) => {
     try {
+
         const files = readdirSync('data/daily')
             .filter(f => f.endsWith('.hll.json'))
             .sort()
