@@ -1,3 +1,4 @@
 node_modules/
 stats.json
 data/
+dist/
