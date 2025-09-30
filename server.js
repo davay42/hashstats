@@ -1,6 +1,7 @@
 import express from 'express'
 import { writeFileSync, mkdirSync, existsSync, readFileSync, readdirSync } from 'fs'
 import pkg from 'bloom-filters'
+import cors from 'cors'
 import { blake3 } from '@noble/hashes/blake3.js'
 import { utf8ToBytes, bytesToHex } from '@noble/hashes/utils.js'
 import { ed25519 } from '@noble/curves/ed25519.js'
@@ -143,6 +144,14 @@ function verifySignature(message, signature, publicKey) {
 
 // Express app
 const app = express()
+
+// Configure CORS
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}))
+
 app.use(express.json())
 app.use(express.static('public'))
 app.use('/data/', express.static('data'))

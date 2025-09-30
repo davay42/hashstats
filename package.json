@@ -17,14 +17,16 @@
     "ed25519",
     "noble"
   ],
-  "dependencies": {},
+  "dependencies": {
+    "cors": "^2.8.5"
+  },
   "devDependencies": {
-    "tsdown": "^0.15.5",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
     "@scure/base": "^2.0.0",
     "bloom-filters": "^3.0.4",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "tsdown": "^0.15.5"
   },
   "engines": {
     "node": ">=22.0.0"
