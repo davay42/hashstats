@@ -1,29 +1,35 @@
-# Anonymous Statistics Server
+# Zero-Trust Anonymous Statistics Server
 
-A production-ready, privacy-preserving anonymous statistics system using **HyperLogLog** and **Bloom filters** with **Ed25519** cryptographic signatures via **Noble** cryptography and **HashKeys** authentication.
+A production-ready, privacy-preserving anonymous statistics system using **HyperLogLog** and **Bloom filters** with **Ed25519** cryptographic signatures and **Vue 3** reactive frontend.
 
 ## Features
 
 - ✅ **Zero-trust architecture** - server never stores raw public keys
 - ✅ **Cryptographically signed pings** - Ed25519 signatures prove key ownership
-- ✅ **Privacy-preserving** - HMAC-derived IDs prevent reverse lookup
-- ✅ **Probabilistic data structures** - minimal memory footprint
+- ✅ **Privacy-preserving** - Blake3-hashed IDs prevent reverse lookup
+- ✅ **Real-time dashboard** - Vue 3 reactive UI with live metrics
 - ✅ **DAU/WAU/MAU metrics** - standard engagement analytics
-- ✅ **Persistent storage** - JSON snapshots survive restarts
+- ✅ **New user tracking** - separate HLL for user acquisition metrics
+- ✅ **Retention analysis** - cohort-based retention calculations
+- ✅ **Replay protection** - nonce-based attack prevention
 - ✅ **Pure ESM** - modern JavaScript modules everywhere
 - ✅ **Noble cryptography only** - no Node crypto or SubtleCrypto
-- ✅ **HashKeys integration** - reactive Vue-based client authentication
+- ✅ **Transparent data** - raw HLL/Bloom filter files publicly accessible for independent verification
 
 ## Architecture
 
 ```
-┌─────────────┐         ┌──────────────┐         ┌─────────────┐
-│ index.html  │ ──POST─→│  server.js   │←──GET──│ stats.html  │
-│  (client)   │  /ingest│  (Node.js)   │ /api/  │ (dashboard) │
-│             │         │              │  stats  │             │
-│ HashKeys    │         │ HLL + Bloom  │         │ Canvas      │
-│ + Bech32    │         │ Noble HMAC   │         │ charts      │
-└─────────────┘         └──────────────┘         └─────────────┘
+┌─────────────┐         ┌──────────────┐
+│ index.html  │ ──POST─→│  server.js   │
+│  (Vue 3)    │  /ingest│  (Express)   │
+│             │         │              │
+│ HashKeys    │         │ HLL + Bloom  │
+│ + Bech32    │         │ Noble Blake3 │
+└─────────────┘         └──────────────┘
+        │                       │
+        ├───GET /api/stats◄─────┘
+        │
+        └───GET /data/*━━━━━━━raw HLL/Bloom JSON files
 ```
 
 ## Installation
@@ -32,89 +38,70 @@ A production-ready, privacy-preserving anonymous statistics system using **Hyper
 npm install
 ```
 
-## Setup
-
-1. **Set server secret** (required for production):
-```bash
-export SERVER_SECRET="your-64-char-hex-secret-here"
-```
-
-Generate a secure secret:
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-2. **Create public folder**:
-```bash
-mkdir -p public
-```
-
-3. **Move HTML files**:
-```bash
-mv index.html public/
-mv stats.html public/
-```
-
 ## Running
 
 ```bash
 # Production
 npm start
 
-# Development (auto-restart on Node 18+)
+# Development (auto-restart on Node 22+)
 npm run dev
 ```
 
-Server runs on `http://localhost:3000`
+Server runs on `http://localhost:3000` and serves the frontend at `/`.
 
 ## How It Works
 
 ### Client Flow (index.html)
 
 1. **Initialize HashKeys**: Vue composable `useAuth('hk')`
-2. **Auto-login**: Generate ephemeral Ed25519 keypair or recall from session
-3. **Sign Message**: 
-   - Construct: `pub || timestamp || nonce`
+2. **Login**: User enters passphrase to generate ephemeral Ed25519 keypair
+3. **Sign Message**:
+   - Construct: `timestamp:nonce`
    - Sign with HashKeys: returns bech32-encoded signature
    - Decode bech32 to raw bytes for server
-4. **POST /ingest**: Send `{pub, ts, nonce, sig}` as hex
-5. **Auto-send**: Once per browser session
+4. **POST /ingest**: Send `{publicKey, timestamp, nonce, signature}` as JSON
+5. **Auto-refresh**: Dashboard updates with new metrics
 
 ### Server Flow (server.js)
 
 1. **Verify Signature**: Ed25519 via `@noble/curves/ed25519`
-2. **Check Timestamp**: Must be within ±2 minutes
-3. **Derive Stored ID**: `HMAC-SHA256(SERVER_SECRET, pub)` via `@noble/hashes`
-4. **Update Structures**:
+2. **Check Timestamp**: Must be within ±1 minute
+3. **Check Nonce**: Prevent replay attacks with in-memory cache
+4. **Derive User ID**: `Blake3(publicKey)` for privacy-preserving tracking
+5. **Update Structures**:
    - Daily HLL (DAU)
-   - Daily Bloom (retention)
+   - New users HLL (acquisition tracking)
    - All-time HLL (total uniques)
    - All-time Bloom (new vs returning)
-5. **Persist**: Save to `stats.json`
+6. **Persist**: Save JSON snapshots to `data/` directory
 
-### Dashboard Flow (stats.html)
+### Dashboard Features
 
-1. **Fetch /api/stats**: Get aggregated metrics
-2. **Compute**:
-   - **DAU**: Daily HLL counts
-   - **WAU**: Merge last 7 days of HLLs
-   - **MAU**: Merge last 30 days of HLLs
-   - **Total**: All-time HLL count
-3. **Render**: Canvas-based line charts (no external dependencies)
+- **Real-time Metrics**: All-time users, WAU, MAU
+- **Retention Analysis**: D1, D7, D30 cohort retention rates
+- **Visual Charts**: Daily active users and new user growth (CSS-based)
+- **Live Updates**: Automatic refresh after sending pings
 
-## Data Structures
+### Transparency & Verification
+
+- **Public Data Access**: All HLL and Bloom filter JSON files are publicly accessible at `/data/`
+- **Independent Verification**: Anyone can download raw data structures and verify calculations
+- **Zero-trust Proof**: Server provides both aggregated API responses and source data for auditing
+- **Open Data Format**: Standard JSON serialization makes verification accessible to any system
+
+## Data Storage
 
 ```javascript
-stats = {
-  daily: {
-    '2025-09-29': {
-      hll: HyperLogLog,    // Unique users this day
-      bloom: BloomFilter    // Set membership for retention
-    }
-  },
-  allTime: HyperLogLog,      // Total unique users ever
-  seenAll: BloomFilter       // All users ever seen
+// Daily data (data/daily/2025-01-15.hll.json)
+{
+  hll: HyperLogLog,        // Unique users this day
+  newUsersHll: HyperLogLog // New users acquired this day
 }
+
+// Global data (data/all.hll.json, data/all.bf.json)
+allHLL: HyperLogLog,       // Total unique users ever
+allBloom: ScalableBloomFilter // All users ever seen
 ```
 
 ## Cryptography Stack
@@ -123,14 +110,13 @@ stats = {
 
 - **HashKeys** (`hashkeys`): Reactive Vue authentication library
 - **Bech32** (`@scure/base`): Human-readable key encoding
-- **Noble Utils** (`@noble/hashes/utils`): Byte manipulation
 - **Ed25519**: Signatures via HashKeys (wraps `@noble/curves`)
+- **Vue 3**: Reactive UI with real-time updates
 
 ### Server (Node.js)
 
 - **Ed25519** (`@noble/curves/ed25519`): Signature verification
-- **SHA-256** (`@noble/hashes/sha256`): Hashing
-- **HMAC** (`@noble/hashes/hmac`): Privacy-preserving ID derivation
+- **Blake3** (`@noble/hashes/blake3`): Fast, secure hashing
 - **Utils** (`@noble/hashes/utils`): Hex/UTF-8 conversion
 
 **No Node.js `crypto` or browser `SubtleCrypto` used** - pure Noble stack.
@@ -142,16 +128,21 @@ stats = {
 **Request**:
 ```json
 {
-  "pub": "hex-encoded-ed25519-public-key",
-  "ts": 1727654400,
-  "nonce": "random-hex-string",
-  "sig": "hex-encoded-ed25519-signature"
+  "publicKey": "hkpk1a2b3c...",
+  "timestamp": "1704067200000",
+  "nonce": "a1b2c3d4e5f6...",
+  "signature": "hksg1x2y3z..."
 }
 ```
 
-**Response**: 
+**Response**:
 ```json
-{ "success": true, "day": "2025-09-29" }
+{
+  "success": true,
+  "date": "2025-01-15",
+  "newUser": true,
+  "dau": 42
+}
 ```
 
 ### GET /api/stats
@@ -159,118 +150,110 @@ stats = {
 **Response**:
 ```json
 {
-  "dau": { "2025-09-29": 42 },
-  "wau": { "2025-09-29": 156 },
-  "mau": { "2025-09-29": 512 },
-  "total": 1024
+  "success": true,
+  "allTime": 1024,
+  "wau": 156,
+  "mau": 512,
+  "recentDays": [
+    {
+      "date": "2025-01-15",
+      "dau": 42,
+      "newUsers": 8
+    }
+  ],
+  "retention": {
+    "d1": {
+      "cohortDate": "2025-01-14",
+      "returnDate": "2025-01-15",
+      "cohortSize": 38,
+      "returnedUsers": 12,
+      "retentionRate": 31.58
+    }
+  }
 }
 ```
 
-## Bech32 Encoding
+### GET /data/*
 
-HashKeys uses Bech32 encoding with `hk` prefix:
+**Public Access**: All HLL and Bloom filter JSON files are served statically for independent verification.
 
-- `hkpk…` - Public/verify key (Ed25519)
-- `hksg…` - Signature
-- `hkid…` - Identity (SHA256 of public key)
-- `hkek…` - Encryption key (X25519)
+**Examples**:
+- `GET /data/all.hll.json` - All-time unique users HLL data
+- `GET /data/all.bf.json` - All-time users Bloom filter data
+- `GET /data/daily/2025-01-15.hll.json` - Daily HLL data with new user tracking
+- `GET /data/weekly/2025-W03.hll.json` - Weekly aggregated HLL data
+- `GET /data/monthly/2025-01.hll.json` - Monthly aggregated HLL data
 
-Client decodes these to raw bytes before sending to server.
+## Security Features
 
-## Security Considerations
-
-1. **Server Secret**: 32-byte (64-char hex) cryptographically random value
-2. **HTTPS**: Always run behind HTTPS in production
-3. **Rate Limiting**: Add rate limiting middleware for `/ingest`
-4. **No Logging**: Server never logs raw public keys or signatures
-5. **Timestamp Window**: 2-minute window prevents replay attacks
-6. **HMAC Derivation**: Makes public key enumeration attacks infeasible
+1. **Zero-trust**: Server never stores raw public keys
+2. **Signature Verification**: Ed25519 signatures prevent spoofing
+3. **Replay Protection**: Nonce cache prevents duplicate pings
+4. **Time Window**: ±1 minute timestamp validation
+5. **Privacy-preserving**: Blake3 hashing makes enumeration infeasible
+6. **No Tracking**: No IP logging, cookies, or persistent identifiers
+7. **Transparent Operations**: Raw data structures publicly accessible for independent verification
 
 ## Privacy Guarantees
 
-- ✅ Raw public keys never stored
-- ✅ Only HMAC-derived IDs enter data structures
-- ✅ HLL/Bloom filters are one-way (cannot extract IDs)
-- ✅ Server cannot link stored IDs back to public keys without secret
-- ✅ No IP logging, cookies, or tracking
-- ✅ Ephemeral client identities (generated per-browser)
+- ✅ Raw public keys never stored on server
+- ✅ Only Blake3-hashed IDs enter data structures
+- ✅ HLL/Bloom filters are one-way (cannot extract original IDs)
+- ✅ Server cannot link stored IDs back to public keys
+- ✅ Ephemeral client identities (generated per-browser session)
+- ✅ No correlation between different browser sessions
 
-## Scaling
+## Performance
 
-- **Memory**: ~10MB per 100k daily users (with default HLL settings)
-- **Disk**: ~1MB per day of JSON snapshots
-- **Performance**: 1000+ req/s on single core
-- **Pruning**: Add automatic old-day deletion if needed
+- **Memory**: ~5MB per 100k daily users (with 1024 HLL registers)
+- **Disk**: ~500KB per day of JSON snapshots
+- **Speed**: 1000+ req/s on single core
+- **Storage**: Automatic aggregation to weekly/monthly buckets
 
-## Integration with HashKeys
-
-This system uses **HashKeys** for client-side authentication:
+## Integration Example
 
 ```javascript
 import { useAuth } from 'hashkeys';
+import { watch } from 'vue';
+
+// Setup authentication
 const auth = useAuth('hk');
 
-// Auto-generates Ed25519 keypair on first use
-await auth.login(ephemeralSecret);
+// Watch auth state
+watch(() => auth.authenticated, async (authenticated) => {
+  if (authenticated) {
+    // Send signed ping
+    const timestamp = Date.now().toString();
+    const nonce = crypto.getRandomValues(new Uint8Array(16));
 
-// Sign messages
-const { signature, publicKey } = await auth.sign({ message });
+    const { signature } = await auth.sign({ message: `${timestamp}:${nonce}` });
 
-// Session persistence via sessionStorage
-auth.recall();
+    await fetch('/ingest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        publicKey: auth.publicKey,
+        timestamp,
+        nonce: Array.from(nonce, b => b.toString(16).padStart(2, '0')).join(''),
+        signature
+      })
+    });
+  }
+});
 ```
 
-## Message Format
+## Live Demo
 
-Client and server must agree on canonical message construction:
+1. Run `npm start`
+2. Open `http://localhost:3000`
+3. Enter any passphrase to login
+4. Click "Send Stats Ping" to register a visit
+5. Click "Refresh Stats" to see updated metrics
+6. Watch real-time DAU/WAU/MAU calculations
 
-```
-message = pub_bytes || utf8(timestamp) || utf8(nonce)
-```
+**Transparency Verification:**
+7. Visit `http://localhost:3000/data/` to browse raw data files
+8. Download any `.hll.json` or `.bf.json` file to verify calculations independently
+9. Use the same bloom-filters library to load and analyze the data structures
 
-Where:
-- `pub_bytes`: Raw Ed25519 public key (32 bytes)
-- `timestamp`: Unix timestamp as UTF-8 string
-- `nonce`: Random hex string as UTF-8 string
-
-## Extending
-
-### Add Retention Tracking
-
-```javascript
-// Check if user is returning
-const isReturning = stats.seenAll.has(storedId);
-```
-
-### Add Frequency Tracking
-
-```javascript
-import { CountMinSketch } from 'bloom-filters';
-// Track "number of visits per user"
-const cms = new CountMinSketch(2048, 4);
-cms.update(storedId, 1);
-```
-
-### Add Proof-of-Work
-
-```javascript
-// Client finds nonce where hash has N leading zeros
-// Server verifies before signature check
-```
-
-## Bloom-Filters Usage
-
-This project uses the `bloom-filters` package (v3.0.1+):
-
-```javascript
-import { HyperLogLog, BloomFilter } from 'bloom-filters';
-
-// Create structures
-const hll = new HyperLogLog(128);
-const bloom = new BloomFilter(2048, 4);
-
-// Add items
-hll.update('item');
-bloom.add('item');
-
-//
+Perfect for **proving zero-trust analytics** without compromising user privacy.

@@ -137,12 +137,6 @@
       passwordInput.value = '';
     }
 
-    // Generate random nonce
-    function generateNonce() {
-      const array = new Uint8Array(16);
-      crypto.getRandomValues(array);
-      return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
-    }
 
     // Login
     async function login() {
@@ -157,10 +151,6 @@
       }
     }
 
-    // Logout
-    async function logout() {
-      await auth.logout();
-    }
 
     // Send stats ping
     async function sendStatsPing() {
@@ -168,7 +158,10 @@
         updateStatus('Creating signed ping...');
 
         const timestamp = Date.now().toString();
-        const nonce = generateNonce();
+        const array = new Uint8Array(16);
+        crypto.getRandomValues(array);
+        const nonce = Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
+
         const message = `${timestamp}:${nonce}`;
 
         const { signature } = await auth.sign({ message });
@@ -262,7 +255,7 @@
     passwordInput.addEventListener('keyup', (e) => {
       if (e.key === 'Enter') login();
     });
-    logoutBtn.addEventListener('click', logout);
+    logoutBtn.addEventListener('click', () => auth.logout());
     pingBtn.addEventListener('click', sendStatsPing);
     statsBtn.addEventListener('click', loadStats);
 

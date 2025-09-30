@@ -145,6 +145,7 @@ function verifySignature(message, signature, publicKey) {
 const app = express()
 app.use(express.json())
 app.use(express.static('public'))
+app.use('/data/', express.static('data'))
 
 app.post('/ingest', (req, res) => {
     try {
