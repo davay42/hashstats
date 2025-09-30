@@ -8,6 +8,10 @@
   <style>
     body { font-family: system-ui, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
     h1 { color: #333; }
+    .auth-box { background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0; border: 2px solid #ddd; }
+    .auth-box input { padding: 10px; font-size: 16px; border: 1px solid #ddd; border-radius: 4px; width: 300px; margin-right: 10px; }
+    .user-info { display: flex; align-items: center; gap: 15px; }
+    .user-id { font-family: monospace; word-break: break-all; background: #e8f5e9; padding: 8px 12px; border-radius: 4px; font-size: 14px; }
     .status { padding: 10px; background: #f0f0f0; border-radius: 4px; margin: 10px 0; }
     .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
     .metric-card { background: #fff; border: 2px solid #ddd; border-radius: 8px; padding: 15px; }
@@ -20,15 +24,17 @@
     button { padding: 10px 20px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin: 5px; }
     button:hover { background: #45a049; }
     button:disabled { background: #ccc; cursor: not-allowed; }
+    button.secondary { background: #666; }
+    button.secondary:hover { background: #555; }
     .retention { background: #fff3cd; padding: 10px; border-radius: 4px; margin: 10px 0; }
+    .hidden { display: none; }
   </style>
   <script type="importmap">
   {
     "imports": {
       "vue": "https://esm.sh/vue@3.5.22",
       "hashkeys": "https://esm.sh/hashkeys@0.2.1",
-      "@scure/base": "https://esm.sh/@scure/base@2.0.0",
-      "@noble/hashes/utils": "https://esm.sh/@noble/hashes@1.4.0/utils"
+      "@scure/base": "https://esm.sh/@scure/base@2.0.0"
     }
   }
   </script>
@@ -37,14 +43,30 @@
 <body>
   <div id="app">
     <h1>🔒 Anonymous Statistics Demo</h1>
-    <div class="status" id="status">Initializing...</div>
     
-    <div>
-      <button id="ping" disabled>Send Stats Ping</button>
-      <button id="stats">Refresh Stats</button>
+    <div class="auth-box">
+      <div id="login-form">
+        <input 
+          id="password" 
+          type="password" 
+          placeholder="Enter passphrase to login"
+        />
+        <button id="login-btn">Login</button>
+      </div>
+      <div id="user-info" class="user-info hidden">
+        <div class="user-id" id="user-identity"></div>
+        <button class="secondary" id="logout-btn">Logout</button>
+      </div>
     </div>
 
-    <div id="metrics" style="display: none;">
+    <div class="status" id="status">Ready to login</div>
+    
+    <div id="actions" class="hidden">
+      <button id="ping-btn">Send Stats Ping</button>
+      <button id="stats-btn">Refresh Stats</button>
+    </div>
+
+    <div id="metrics" class="hidden">
       <h2>Key Metrics</h2>
       <div class="metrics">
         <div class="metric-card">
@@ -70,6 +92,10 @@
         <h3>Daily Active Users (Last 30 Days)</h3>
         <div id="dailyChart"></div>
       </div>
+      <div class="chart">
+        <h3>New Users Growth (Last 30 Days)</h3>
+        <div id="newUsersChart"></div>
+      </div>
     </div>
   </div>
 
@@ -78,50 +104,94 @@
     import { useAuth } from 'hashkeys';
 
     const auth = useAuth('hk');
+    
+    // DOM elements
+    const loginForm = document.getElementById('login-form');
+    const userInfo = document.getElementById('user-info');
+    const passwordInput = document.getElementById('password');
+    const loginBtn = document.getElementById('login-btn');
+    const logoutBtn = document.getElementById('logout-btn');
+    const userIdentity = document.getElementById('user-identity');
     const statusEl = document.getElementById('status');
-    const pingBtn = document.getElementById('ping');
-    const statsBtn = document.getElementById('stats');
+    const actionsDiv = document.getElementById('actions');
+    const pingBtn = document.getElementById('ping-btn');
+    const statsBtn = document.getElementById('stats-btn');
     const metricsEl = document.getElementById('metrics');
 
     function updateStatus(msg) {
       statusEl.textContent = msg;
     }
 
-    // Watch auth state
-    watch(() => auth.authenticated, (authenticated) => {
-      if (authenticated) {
-        updateStatus(`✓ Authenticated as ${auth.identity.slice(0, 8)}...`);
-        pingBtn.disabled = false;
-      } else {
-        auth.login(Math.floor(Math.random()*1000000).toString())
+    function showAuthenticated() {
+      loginForm.classList.add('hidden');
+      userInfo.classList.remove('hidden');
+      actionsDiv.classList.remove('hidden');
+      userIdentity.textContent = auth.identity;
+    }
+
+    function showUnauthenticated() {
+      loginForm.classList.remove('hidden');
+      userInfo.classList.add('hidden');
+      actionsDiv.classList.add('hidden');
+      metricsEl.classList.add('hidden');
+      passwordInput.value = '';
+    }
+
+    // Generate random nonce
+    function generateNonce() {
+      const array = new Uint8Array(16);
+      crypto.getRandomValues(array);
+      return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Login
+    async function login() {
+      const password = passwordInput.value.trim();
+      if (!password) return;
+      
+      try {
+        updateStatus('Logging in...');
+        await auth.login(password);
+      } catch (err) {
+        updateStatus('Login failed: ' + err.message);
       }
-    }, {immediate: true});
+    }
 
-    watch(() => auth.error, (error) => {
-      if (error) updateStatus('✗ Error: ' + error);
-    });
-
-    watch(() => auth.loading, (loading) => {
-      if (loading) updateStatus('Loading...');
-    });
+    // Logout
+    async function logout() {
+      await auth.logout();
+    }
 
     // Send stats ping
     async function sendStatsPing() {
       try {
-        updateStatus('Sending ping...');
+        updateStatus('Creating signed ping...');
+
+        const timestamp = Date.now().toString();
+        const nonce = generateNonce();
+        const message = `${timestamp}:${nonce}`;
+
+        const { signature } = await auth.sign({ message });
+
+        updateStatus('Sending signed ping...');
 
         const response = await fetch('/ingest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pub: auth.publicKey })
+          body: JSON.stringify({ 
+            publicKey: auth.publicKey,
+            timestamp,
+            nonce,
+            signature
+          })
         });
 
         const result = await response.json();
 
         if (response.ok) {
           const newUserBadge = result.newUser ? ' 🎉 NEW USER!' : '';
-          updateStatus(`✓ Ping sent for ${result.date}${newUserBadge} (Daily: ${result.dailyCount})`);
-          loadStats(); // Auto-refresh
+          updateStatus(`✓ Signed ping verified for ${result.date}${newUserBadge} (DAU: ${Math.round(result.dau)})`);
+          loadStats();
         } else {
           updateStatus('✗ Failed: ' + result.error);
         }
@@ -141,35 +211,41 @@
 
         if (response.ok) {
           updateStatus('✓ Stats loaded successfully');
-          metricsEl.style.display = 'block';
+          metricsEl.classList.remove('hidden');
           
-          // Update metrics
-          document.getElementById('allTime').textContent = result.allTime.toLocaleString();
-          document.getElementById('wau').textContent = result.wau.toLocaleString();
-          document.getElementById('mau').textContent = result.mau.toLocaleString();
+          document.getElementById('allTime').textContent = Math.round(result.allTime).toLocaleString();
+          document.getElementById('wau').textContent = Math.round(result.wau).toLocaleString();
+          document.getElementById('mau').textContent = Math.round(result.mau).toLocaleString();
 
-          // Update retention
           const retEl = document.getElementById('retention');
           const ret = result.retention;
           if (ret.d1 || ret.d7 || ret.d30) {
             retEl.innerHTML = `
-              <div><strong>D1:</strong> ${ret.d1 ? `${ret.d1.cohortDate} → ${ret.d1.returnDate} (cohort: ${ret.d1.cohortSize})` : 'Not enough data'}</div>
-              <div><strong>D7:</strong> ${ret.d7 ? `${ret.d7.cohortDate} → ${ret.d7.returnDate} (cohort: ${ret.d7.cohortSize})` : 'Not enough data'}</div>
-              <div><strong>D30:</strong> ${ret.d30 ? `${ret.d30.cohortDate} → ${ret.d30.returnDate} (cohort: ${ret.d30.cohortSize})` : 'Not enough data'}</div>
-              <small style="color: #856404;">Note: ${ret.d1?.note || 'Bloom filters provide approximate data'}</small>
+              <div><strong>D1:</strong> ${ret.d1 ? `${ret.d1.cohortDate} → ${ret.d1.returnDate} (${ret.d1.returnedUsers} returned, ${ret.d1.retentionRate}%)` : 'Not enough data'}</div>
+              <div><strong>D7:</strong> ${ret.d7 ? `${ret.d7.cohortDate} → ${ret.d7.returnDate} (${ret.d7.returnedUsers} returned, ${ret.d7.retentionRate}%)` : 'Not enough data'}</div>
+              <div><strong>D30:</strong> ${ret.d30 ? `${ret.d30.cohortDate} → ${ret.d30.returnDate} (${ret.d30.returnedUsers} returned, ${ret.d30.retentionRate}%)` : 'Not enough data'}</div>
             `;
           } else {
             retEl.textContent = 'No retention data yet (need multiple days)';
           }
 
-          // Draw daily chart
           const chartEl = document.getElementById('dailyChart');
-          const maxDau = Math.max(...result.recentDays.map(d => d.dau), 1);
+          const maxDau = Math.max(...result.recentDays.map(d => Math.round(d.dau)), 1);
           chartEl.innerHTML = result.recentDays.map(day => `
             <div class="day-bar">
               <span class="date">${day.date}</span>
-              <div class="bar" style="width: ${(day.dau / maxDau) * 100}%"></div>
-              <span style="margin-left: 10px;">${day.dau}</span>
+              <div class="bar" style="width: ${(Math.round(day.dau) / maxDau) * 100}%"></div>
+              <span style="margin-left: 10px;">${Math.round(day.dau)}</span>
+            </div>
+          `).join('');
+          
+          const newUsersChartEl = document.getElementById('newUsersChart');
+          const maxNewUsers = Math.max(...result.recentDays.map(d => Math.round(d.newUsers)), 1);
+          newUsersChartEl.innerHTML = result.recentDays.map(day => `
+            <div class="day-bar">
+              <span class="date">${day.date}</span>
+              <div class="bar" style="width: ${(Math.round(day.newUsers) / maxNewUsers) * 100}%; background: #2196F3;"></div>
+              <span style="margin-left: 10px;">${Math.round(day.newUsers)}</span>
             </div>
           `).join('');
         } else {
@@ -181,11 +257,37 @@
       }
     }
 
+    // Event listeners
+    loginBtn.addEventListener('click', login);
+    passwordInput.addEventListener('keyup', (e) => {
+      if (e.key === 'Enter') login();
+    });
+    logoutBtn.addEventListener('click', logout);
     pingBtn.addEventListener('click', sendStatsPing);
     statsBtn.addEventListener('click', loadStats);
 
-    // Auto-load stats on start
-    setTimeout(loadStats, 1000);
+    // Watch auth state
+    watch(() => auth.authenticated, (authenticated) => {
+      if (authenticated) {
+        updateStatus(`✓ Authenticated as ${auth.identity}`);
+        showAuthenticated();
+        loadStats();
+      } else {
+        updateStatus('Ready to login');
+        showUnauthenticated();
+      }
+    });
+
+    watch(() => auth.error, (error) => {
+      if (error) updateStatus('✗ Error: ' + error);
+    });
+
+    watch(() => auth.loading, (loading) => {
+      if (loading) updateStatus('Loading...');
+    });
+
+    // Try to recall session on load
+    auth.recall();
   </script>
 </body>
 
